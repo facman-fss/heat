@@ -11,10 +11,10 @@
   <meta name="theme-color" content="#8C1D40">
   <style>
     :root {
-      --asu-maroon: #8C1D40;
-      --asu-gold: #FFC627;
-      --asu-black: #000000;
-      --asu-white: #FFFFFF;
+      --maroon: #8C1D40;
+      --gold: #FFC627;
+      --black: #000000;
+      --white: #FFFFFF;
       --green: #16803c;
       --yellow: #f2c94c;
       --red: #c62828;
@@ -251,7 +251,7 @@
 </head>
 <body>
   <header>
-    <h1>ASU Heat Safety Dashboard</h1>
+    <h1>Heat Safety Dashboard</h1>
     <p>Current NWS weather observations and heat alert status for outdoor work planning</p>
   </header>
 
@@ -277,10 +277,10 @@
 
   <script>
     const SITES = [
-      { name: 'ASU West', lat: 33.6079039, lon: -112.1609696 },
-      { name: 'ASU Downtown', lat: 33.4539316, lon: -112.0705604 },
-      { name: 'ASU Tempe', lat: 33.421, lon: -111.9340 },
-      { name: 'ASU Polytechnic', lat: 33.3061605, lon: -111.6791023 }
+      { name: 'West Campus', lat: 33.6079039, lon: -112.1609696 },
+      { name: 'Downtown Campus', lat: 33.4539316, lon: -112.0705604 },
+      { name: 'Tempe Campus', lat: 33.421, lon: -111.9340 },
+      { name: 'Poly Campus', lat: 33.3061605, lon: -111.6791023 }
     ];
 
     const HEAT_ALERT_EVENTS = new Set([
