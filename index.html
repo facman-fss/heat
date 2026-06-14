@@ -376,13 +376,8 @@
       return { level: 'green', label: 'Acceptable', zone: 'acceptable' };
     }
 
-    function statusFromForecast(site, alerts, forecastHeatIndexF) {
-      const eventNames = alerts.map(a => a.event);
-      if (eventNames.some(event => SEVERE_HEAT_EVENTS.has(event))) {
-        return { level: 'red', label: 'Extreme Heat Alert', reason: `An official extreme or excessive heat warning is active for ${site.name}.` };
-      }
-
-      const zone = heatIndexZoneFromTable(forecastHeatIndexF);
+    function statusFromCurrentHeatIndex(site, heatIndexF) {
+      const zone = heatIndexZoneFromTable(heatIndexF);
       if (zone.zone === 'danger') {
         return {
           level: 'orange',
@@ -401,7 +396,7 @@
       return {
         level: 'green',
         label: 'Acceptable',
-        reason: `The heat index forecast is currently in the acceptable zone for ${site.name}.`
+        reason: `The current heat index is in the acceptable zone for ${site.name}.`
       };
     }
 
@@ -437,7 +432,7 @@
           <div class="metric-grid">
             <div class="metric"><div class="metric-label">Current Temp</div><div class="metric-value">Loading…</div></div>
             <div class="metric"><div class="metric-label">Humidity</div><div class="metric-value">Loading…</div></div>
-            <div class="metric"><div class="metric-label">Peak Forecast Heat Index</div><div class="metric-value">Loading…</div></div>
+            <div class="metric"><div class="metric-label">Current Heat Index</div><div class="metric-value">Loading…</div></div>
             <div class="metric"><div class="metric-label">Wind</div><div class="metric-value">Loading…</div></div>
           </div>
           <div class="advisories"><div class="section-title">Heat Protocol</div>Loading…</div>
@@ -449,7 +444,7 @@
 
     function updateCard(site, data) {
       const card = document.getElementById(site.id);
-      const status = statusFromForecast(site, data.heatAlerts, data.forecastHeatIndexF);
+      const status = statusFromCurrentHeatIndex(site, data.heatIndexF);
       const band = card.querySelector('.status-band');
       band.className = `status-band status-${status.level}`;
       band.innerHTML = `<span>${status.label}</span><span class="status-pill">${status.level.toUpperCase()}</span>`;
@@ -457,7 +452,7 @@
       const metricValues = card.querySelectorAll('.metric-value');
       metricValues[0].textContent = `${round(data.tempF)}°F`;
       metricValues[1].textContent = `${round(data.humidity)}%`;
-      metricValues[2].textContent = data.forecastHeatIndexF === null ? 'N/A' : `${round(data.forecastHeatIndexF)}°F`;
+      metricValues[2].textContent = data.heatIndexF === null ? 'N/A' : `${round(data.heatIndexF)}°F`;
       metricValues[3].textContent = `${round(data.windMph)} mph`;
 
       const advisories = card.querySelector('.advisories');
@@ -471,8 +466,8 @@
         <div><strong>Condition:</strong> ${data.textDescription || 'N/A'}</div>
         <div><strong>Dew point:</strong> ${data.dewpointF === null ? 'N/A' : `${round(data.dewpointF)}°F`}</div>
         <div><strong>Barometric pressure:</strong> ${data.pressurePa === null ? 'N/A' : `${round(data.pressurePa / 100, 1)} hPa`}</div>
+        <div><strong>Peak forecast heat index:</strong> ${data.forecastHeatIndexF === null ? 'N/A' : `${round(data.forecastHeatIndexF)}°F`}</div>
         <div><strong>Peak forecast time:</strong> ${data.forecastHeatIndexTime ? formatDateTime(new Date(data.forecastHeatIndexTime)) : 'N/A'}</div>
-        <div><strong>Current calculated heat index:</strong> ${data.heatIndexF === null ? 'N/A' : `${round(data.heatIndexF)}°F`}</div>
         <div class="section-title">NWS Weather Alerts / Warnings</div>
         ${renderWeatherAlerts(data.weatherAlerts)}
       `;
