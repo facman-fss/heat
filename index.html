@@ -405,6 +405,21 @@
       };
     }
 
+    function renderWeatherAlerts(alerts) {
+      if (!alerts.length) {
+        return '<div>No active NWS weather alerts or warnings for this campus at page load.</div>';
+      }
+
+      return alerts.map(alert => `
+        <div>
+          <strong>${alert.event || 'Weather Alert'}</strong>
+          <div>${alert.headline || alert.description || 'No alert details provided.'}</div>
+          <div class="small-text">Effective: ${alert.effective ? formatDateTime(new Date(alert.effective)) : 'N/A'}</div>
+          <div class="small-text">Expires: ${alert.expires ? formatDateTime(new Date(alert.expires)) : 'N/A'}</div>
+        </div>
+      `).join('<hr>');
+    }
+
     function createCard(site) {
       const card = document.createElement('article');
       card.className = 'site-card';
@@ -458,6 +473,8 @@
         <div><strong>Barometric pressure:</strong> ${data.pressurePa === null ? 'N/A' : `${round(data.pressurePa / 100, 1)} hPa`}</div>
         <div><strong>Peak forecast time:</strong> ${data.forecastHeatIndexTime ? formatDateTime(new Date(data.forecastHeatIndexTime)) : 'N/A'}</div>
         <div><strong>Current calculated heat index:</strong> ${data.heatIndexF === null ? 'N/A' : `${round(data.heatIndexF)}°F`}</div>
+        <div class="section-title">NWS Weather Alerts / Warnings</div>
+        ${renderWeatherAlerts(data.weatherAlerts)}
       `;
     }
 
@@ -531,21 +548,21 @@
       return { value: peak, time: peakTime };
     }
 
-    async function getHeatAlerts(site) {
+    async function getWeatherAlerts(site) {
       const alertsUrl = `https://api.weather.gov/alerts/active?point=${site.lat},${site.lon}`;
       const alertsData = await fetchJson(alertsUrl);
       return (alertsData.features || [])
-        .map(feature => feature.properties)
-        .filter(properties => HEAT_ALERT_EVENTS.has(properties.event));
+        .map(feature => feature.properties);
     }
 
     async function loadSite(site) {
       try {
-        const [observation, forecastHeatIndex, heatAlerts] = await Promise.all([
+        const [observation, forecastHeatIndex, weatherAlerts] = await Promise.all([
           getLatestObservation(site),
           getForecastHeatIndex(site),
-          getHeatAlerts(site)
+          getWeatherAlerts(site)
         ]);
+        const heatAlerts = weatherAlerts.filter(properties => HEAT_ALERT_EVENTS.has(properties.event));
 
         const props = observation.obsData.properties;
         const tempF = cToF(props.temperature && props.temperature.value);
@@ -567,6 +584,7 @@
           forecastHeatIndexF: forecastHeatIndex.value,
           forecastHeatIndexTime: forecastHeatIndex.time,
           heatAlerts,
+          weatherAlerts,
           stationId: observation.stationId,
           stationName: observation.stationName,
           observationTime: props.timestamp,
