@@ -18,6 +18,7 @@
       --white: #FFFFFF;
       --green: #16803c;
       --yellow: #f2c94c;
+      --orange: #f97316;
       --red: #c62828;
       --gray-100: #f6f6f6;
       --gray-200: #e7e7e7;
@@ -102,6 +103,7 @@
 
     .dot.green { background: var(--green); }
     .dot.yellow { background: var(--yellow); }
+    .dot.orange { background: var(--orange); }
     .dot.red { background: var(--red); }
 
     .site-grid {
@@ -154,6 +156,7 @@
 
     .status-green { background: var(--green); color: var(--white); }
     .status-yellow { background: var(--yellow); color: var(--black); }
+    .status-orange { background: var(--orange); color: var(--black); }
     .status-red { background: var(--red); color: var(--white); }
     .status-loading { background: var(--gray-200); color: var(--gray-700); }
 
@@ -263,9 +266,10 @@
         <div class="small-text">Data is pulled directly from National Weather Service API endpoints when this page loads.</div>
       </div>
       <div class="legend" aria-label="Status legend">
-        <span class="legend-item"><span class="dot green"></span> Normal / No heat alert</span>
-        <span class="legend-item"><span class="dot yellow"></span> Heat Advisory or elevated conditions</span>
-        <span class="legend-item"><span class="dot red"></span> Extreme Heat Warning or severe conditions</span>
+        <span class="legend-item"><span class="dot green"></span> Acceptable zone</span>
+        <span class="legend-item"><span class="dot yellow"></span> Extreme caution</span>
+        <span class="legend-item"><span class="dot orange"></span> Danger or higher / protocol active</span>
+        <span class="legend-item"><span class="dot red"></span> Official warning or data error</span>
       </div>
     </section>
 
@@ -355,23 +359,51 @@
       return hi;
     }
 
-    function statusFromConditions(alerts, tempF, heatIndexF) {
-      const eventNames = alerts.map(a => a.event);
-      if (eventNames.some(event => SEVERE_HEAT_EVENTS.has(event))) {
-        return { level: 'red', label: 'Extreme Heat Alert', reason: 'Official NWS extreme/excessive heat warning is active.' };
-      }
-      if (eventNames.some(event => HEAT_ALERT_EVENTS.has(event))) {
-        return { level: 'yellow', label: 'Heat Advisory', reason: 'Official NWS heat advisory/watch is active.' };
+    function heatIndexZoneFromTable(heatIndexF) {
+      if (heatIndexF === null || heatIndexF === undefined || Number.isNaN(heatIndexF)) {
+        return { level: 'green', label: 'Acceptable', zone: 'acceptable' };
       }
 
-      // Local condition backup indicators. Adjust these thresholds to match ASU / department policy if needed.
-      if ((heatIndexF !== null && heatIndexF >= 110) || (tempF !== null && tempF >= 110)) {
-        return { level: 'red', label: 'Severe Conditions', reason: 'Temperature or calculated heat index is at or above 110°F.' };
+      const roundedHeatIndex = Math.round(heatIndexF);
+
+      // NWS heat index table zones. Caution values below yellow are green for this app.
+      // Orange danger and red extreme-danger table values both trigger the orange protocol status.
+      if (roundedHeatIndex >= 105) {
+        return { level: 'orange', label: 'Danger', zone: 'danger' };
       }
-      if ((heatIndexF !== null && heatIndexF >= 100) || (tempF !== null && tempF >= 100)) {
-        return { level: 'yellow', label: 'Elevated Heat', reason: 'Temperature or calculated heat index is at or above 100°F.' };
+      if (roundedHeatIndex >= 90) {
+        return { level: 'yellow', label: 'Extreme Caution', zone: 'extreme-caution' };
       }
-      return { level: 'green', label: 'Normal', reason: 'No official heat alert and conditions are below local dashboard thresholds.' };
+      return { level: 'green', label: 'Acceptable', zone: 'acceptable' };
+    }
+
+    function statusFromForecast(site, alerts, forecastHeatIndexF) {
+      const eventNames = alerts.map(a => a.event);
+      if (eventNames.some(event => SEVERE_HEAT_EVENTS.has(event))) {
+        return { level: 'red', label: 'Extreme Heat Alert', reason: `An official extreme or excessive heat warning is active for ${site.name}.` };
+      }
+
+      const zone = heatIndexZoneFromTable(forecastHeatIndexF);
+      if (zone.zone === 'danger') {
+        return {
+          level: 'orange',
+          label: 'Danger',
+          reason: `The heat index has reached the DANGER status and the extreme heat protocol is now in effect for ${site.name}.`
+        };
+      }
+      if (zone.zone === 'extreme-caution') {
+        return {
+          level: 'yellow',
+          label: 'Extreme Caution',
+          reason: `The heat index has reached extreme caution status for ${site.name}. Please use extreme caution.`
+        };
+      }
+
+      return {
+        level: 'green',
+        label: 'Acceptable',
+        reason: `The heat index forecast is currently in the acceptable zone for ${site.name}.`
+      };
     }
 
     function createCard(site) {
@@ -391,10 +423,10 @@
           <div class="metric-grid">
             <div class="metric"><div class="metric-label">Current Temp</div><div class="metric-value">Loading…</div></div>
             <div class="metric"><div class="metric-label">Humidity</div><div class="metric-value">Loading…</div></div>
-            <div class="metric"><div class="metric-label">Heat Index</div><div class="metric-value">Loading…</div></div>
+            <div class="metric"><div class="metric-label">Peak Forecast Heat Index</div><div class="metric-value">Loading…</div></div>
             <div class="metric"><div class="metric-label">Wind</div><div class="metric-value">Loading…</div></div>
           </div>
-          <div class="advisories"><div class="section-title">Current Advisories</div>Loading…</div>
+          <div class="advisories"><div class="section-title">Heat Protocol</div>Loading…</div>
           <div class="details"><div class="section-title">Additional Details</div>Loading…</div>
         </div>
       `;
@@ -403,7 +435,7 @@
 
     function updateCard(site, data) {
       const card = document.getElementById(site.id);
-      const status = statusFromConditions(data.heatAlerts, data.tempF, data.heatIndexF);
+      const status = statusFromForecast(site, data.heatAlerts, data.forecastHeatIndexF);
       const band = card.querySelector('.status-band');
       band.className = `status-band status-${status.level}`;
       band.innerHTML = `<span>${status.label}</span><span class="status-pill">${status.level.toUpperCase()}</span>`;
@@ -411,21 +443,11 @@
       const metricValues = card.querySelectorAll('.metric-value');
       metricValues[0].textContent = `${round(data.tempF)}°F`;
       metricValues[1].textContent = `${round(data.humidity)}%`;
-      metricValues[2].textContent = data.heatIndexF === null ? 'N/A' : `${round(data.heatIndexF)}°F`;
+      metricValues[2].textContent = data.forecastHeatIndexF === null ? 'N/A' : `${round(data.forecastHeatIndexF)}°F`;
       metricValues[3].textContent = `${round(data.windMph)} mph`;
 
       const advisories = card.querySelector('.advisories');
-      if (data.heatAlerts.length) {
-        advisories.innerHTML = `<div class="section-title">Current Advisories</div>` +
-          data.heatAlerts.map(alert => `
-            <div><strong>${alert.event}</strong></div>
-            <div>${alert.headline || 'No headline provided.'}</div>
-            <div class="small-text">Effective: ${alert.effective ? formatDateTime(new Date(alert.effective)) : 'N/A'}</div>
-            <div class="small-text">Expires: ${alert.expires ? formatDateTime(new Date(alert.expires)) : 'N/A'}</div>
-          `).join('<hr>');
-      } else {
-        advisories.innerHTML = `<div class="section-title">Current Advisories</div>No active NWS heat advisory or extreme/excessive heat warning found for this point.`;
-      }
+      advisories.innerHTML = `<div class="section-title">Heat Protocol</div>${status.reason}`;
 
       const details = card.querySelector('.details');
       details.innerHTML = `
@@ -435,7 +457,8 @@
         <div><strong>Condition:</strong> ${data.textDescription || 'N/A'}</div>
         <div><strong>Dew point:</strong> ${data.dewpointF === null ? 'N/A' : `${round(data.dewpointF)}°F`}</div>
         <div><strong>Barometric pressure:</strong> ${data.pressurePa === null ? 'N/A' : `${round(data.pressurePa / 100, 1)} hPa`}</div>
-        <div class="small-text"><strong>Status reason:</strong> ${status.reason}</div>
+        <div><strong>Peak forecast time:</strong> ${data.forecastHeatIndexTime ? formatDateTime(new Date(data.forecastHeatIndexTime)) : 'N/A'}</div>
+        <div><strong>Current calculated heat index:</strong> ${data.heatIndexF === null ? 'N/A' : `${round(data.heatIndexF)}°F`}</div>
       `;
     }
 
@@ -475,6 +498,40 @@
       return { obsData, stationId, stationName };
     }
 
+    async function getForecastHeatIndex(site) {
+      const pointsUrl = `https://api.weather.gov/points/${site.lat},${site.lon}`;
+      const pointData = await fetchJson(pointsUrl);
+      const forecastHourlyUrl = pointData.properties.forecastHourly;
+      if (!forecastHourlyUrl) return { value: null, time: null };
+
+      const forecastData = await fetchJson(forecastHourlyUrl);
+      const periods = forecastData.properties && Array.isArray(forecastData.properties.periods)
+        ? forecastData.properties.periods
+        : [];
+
+      let peak = null;
+      let peakTime = null;
+      periods.forEach(period => {
+        const tempF = typeof period.temperature === 'number' && period.temperatureUnit === 'F'
+          ? period.temperature
+          : null;
+        const humidity = period.relativeHumidity && typeof period.relativeHumidity.value === 'number'
+          ? period.relativeHumidity.value
+          : null;
+        const reportedHeatIndexF = period.heatIndex && typeof period.heatIndex.value === 'number'
+          ? cToF(period.heatIndex.value)
+          : null;
+        const heatIndexF = reportedHeatIndexF !== null ? reportedHeatIndexF : calculateHeatIndexF(tempF, humidity);
+
+        if (heatIndexF !== null && (peak === null || heatIndexF > peak)) {
+          peak = heatIndexF;
+          peakTime = period.startTime || null;
+        }
+      });
+
+      return { value: peak, time: peakTime };
+    }
+
     async function getHeatAlerts(site) {
       const alertsUrl = `https://api.weather.gov/alerts/active?point=${site.lat},${site.lon}`;
       const alertsData = await fetchJson(alertsUrl);
@@ -485,8 +542,9 @@
 
     async function loadSite(site) {
       try {
-        const [observation, heatAlerts] = await Promise.all([
+        const [observation, forecastHeatIndex, heatAlerts] = await Promise.all([
           getLatestObservation(site),
+          getForecastHeatIndex(site),
           getHeatAlerts(site)
         ]);
 
@@ -507,6 +565,8 @@
           windMph,
           pressurePa,
           heatIndexF,
+          forecastHeatIndexF: forecastHeatIndex.value,
+          forecastHeatIndexTime: forecastHeatIndex.time,
           heatAlerts,
           stationId: observation.stationId,
           stationName: observation.stationName,
