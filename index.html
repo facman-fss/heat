@@ -376,27 +376,38 @@
       return { level: 'green', label: 'Acceptable', zone: 'acceptable' };
     }
 
-    function statusFromCurrentHeatIndex(site, heatIndexF) {
+    function statusFromCurrentHeatIndex(site, heatIndexF, signalBasis) {
       const zone = heatIndexZoneFromTable(heatIndexF);
+      const isTemperatureOnly = signalBasis === 'temperature-only';
+      const dangerReason = isTemperatureOnly
+        ? `Humidity data is unavailable. The current temperature has reached the DANGER status and the extreme heat protocol is now in effect for ${site.name}.`
+        : `The heat index has reached the DANGER status and the extreme heat protocol is now in effect for ${site.name}.`;
+      const cautionReason = isTemperatureOnly
+        ? `Humidity data is unavailable. The current temperature has reached extreme caution status for ${site.name}. Begin communication protocol to use extreme caution.`
+        : `The heat index has reached extreme caution status for ${site.name}. Begin communication protocol to use extreme caution.`;
+      const acceptableReason = isTemperatureOnly
+        ? `Humidity data is unavailable. The current temperature is in the acceptable zone for ${site.name}.`
+        : `The current heat index is in the acceptable zone for ${site.name}.`;
+
       if (zone.zone === 'danger') {
         return {
           level: 'orange',
           label: 'Danger',
-          reason: `The heat index has reached the DANGER status and the extreme heat protocol is now in effect for ${site.name}.`
+          reason: dangerReason
         };
       }
       if (zone.zone === 'extreme-caution') {
         return {
           level: 'yellow',
           label: 'Extreme Caution',
-          reason: `The heat index has reached extreme caution status for ${site.name}. Begin communication protocol to use extreme caution.`
+          reason: cautionReason
         };
       }
 
       return {
         level: 'green',
         label: 'Acceptable',
-        reason: `The current heat index is in the acceptable zone for ${site.name}.`
+        reason: acceptableReason
       };
     }
 
@@ -444,15 +455,17 @@
 
     function updateCard(site, data) {
       const card = document.getElementById(site.id);
-      const status = statusFromCurrentHeatIndex(site, data.heatIndexF);
+      const status = statusFromCurrentHeatIndex(site, data.heatIndexF, data.heatIndexSource);
       const band = card.querySelector('.status-band');
       band.className = `status-band status-${status.level}`;
       band.innerHTML = `<span>${status.label}</span><span class="status-pill">${status.level.toUpperCase()}</span>`;
 
       const metricValues = card.querySelectorAll('.metric-value');
       metricValues[0].textContent = `${round(data.tempF)}°F`;
-      metricValues[1].textContent = `${round(data.humidity)}%`;
-      metricValues[2].textContent = data.heatIndexF === null ? 'N/A' : `${round(data.heatIndexF)}°F`;
+      metricValues[1].textContent = data.humidity === null ? 'N/A' : `${round(data.humidity)}%`;
+      metricValues[2].textContent = data.heatIndexF === null
+        ? 'N/A'
+        : `${round(data.heatIndexF)}°F${data.heatIndexSource === 'temperature-only' ? ' (temp only)' : ''}`;
       metricValues[3].textContent = `${round(data.windMph)} mph`;
 
       const advisories = card.querySelector('.advisories');
@@ -466,6 +479,7 @@
         <div><strong>Condition:</strong> ${data.textDescription || 'N/A'}</div>
         <div><strong>Dew point:</strong> ${data.dewpointF === null ? 'N/A' : `${round(data.dewpointF)}°F`}</div>
         <div><strong>Barometric pressure:</strong> ${data.pressurePa === null ? 'N/A' : `${round(data.pressurePa / 100, 1)} hPa`}</div>
+        <div><strong>Heat signal basis:</strong> ${data.heatIndexSource === 'temperature-only' ? 'Temperature only; humidity unavailable' : 'Current temperature and humidity'}</div>
         <div><strong>Peak forecast heat index:</strong> ${data.forecastHeatIndexF === null ? 'N/A' : `${round(data.forecastHeatIndexF)}°F`}</div>
         <div><strong>Peak forecast time:</strong> ${data.forecastHeatIndexTime ? formatDateTime(new Date(data.forecastHeatIndexTime)) : 'N/A'}</div>
         <div class="section-title">NWS Weather Alerts / Warnings</div>
@@ -479,7 +493,7 @@
       band.className = 'status-band status-red';
       band.innerHTML = `<span>Data Error</span><span class="status-pill">RED</span>`;
       card.querySelector('.card-body').innerHTML = `
-        <div class="error">Unable to load NWS data for ${site.name}.</div>
+        <div class="error">Sensor data is unavailable for ${site.name}.</div>
         <div class="details"><div class="section-title">Error Detail</div>${error.message || error}</div>
       `;
     }
@@ -561,13 +575,25 @@
 
         const props = observation.obsData.properties;
         const tempF = cToF(props.temperature && props.temperature.value);
-        const humidity = props.relativeHumidity && props.relativeHumidity.value;
+        if (tempF === null || Number.isNaN(tempF)) {
+          throw new Error('Sensor data is unavailable because current temperature could not be retrieved.');
+        }
+
+        const humidityValue = props.relativeHumidity && props.relativeHumidity.value;
+        const humidity = typeof humidityValue === 'number' && !Number.isNaN(humidityValue) ? humidityValue : null;
         const dewpointF = cToF(props.dewpoint && props.dewpoint.value);
         const windMph = msToMph(props.windSpeed && props.windSpeed.value);
         const pressurePa = props.barometricPressure && props.barometricPressure.value;
-        const reportedHeatIndexF = cToF(props.heatIndex && props.heatIndex.value);
-        const calculatedHeatIndexF = calculateHeatIndexF(tempF, humidity);
-        const heatIndexF = reportedHeatIndexF !== null ? reportedHeatIndexF : calculatedHeatIndexF;
+        const reportedHeatIndexValue = cToF(props.heatIndex && props.heatIndex.value);
+        const reportedHeatIndexF = reportedHeatIndexValue !== null && !Number.isNaN(reportedHeatIndexValue)
+          ? reportedHeatIndexValue
+          : null;
+        const humidityUnavailable = humidity === null;
+        const calculatedHeatIndexF = humidityUnavailable ? tempF : calculateHeatIndexF(tempF, humidity);
+        const heatIndexF = humidityUnavailable
+          ? tempF
+          : (reportedHeatIndexF !== null ? reportedHeatIndexF : calculatedHeatIndexF);
+        const heatIndexSource = humidityUnavailable ? 'temperature-only' : 'heat-index';
 
         updateCard(site, {
           tempF,
@@ -576,6 +602,7 @@
           windMph,
           pressurePa,
           heatIndexF,
+          heatIndexSource,
           forecastHeatIndexF: forecastHeatIndex.value,
           forecastHeatIndexTime: forecastHeatIndex.time,
           heatAlerts,
